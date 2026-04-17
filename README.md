@@ -1,2 +1,0 @@
-# testbot
-test my bot
