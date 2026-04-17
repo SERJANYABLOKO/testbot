@@ -105,8 +105,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_new_photo))
     
     print("🤖 Bot started!")
-    # Исправленный способ запуска, совместимый с Python 3.14
-    asyncio.run(app.run_polling())
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
