@@ -1,106 +1,87 @@
+import os
 import random
 import logging
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8679508525:AAFIKdsKMTDYpI0SVcv-edwaf56jJsVlVNA"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не найден в переменных окружения!")
 
-# Включим логи, чтобы видеть ошибки
+# Включим логи
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    level=logging.INFO
 )
 
-# Хранилище фото для каждой группы (file_id)
-# Ключ: chat_id, значение: список file_id фото
 group_photos = {}
 
-
-# --- ФУНКЦИЯ ДЛЯ СОХРАНЕНИЯ НОВЫХ ФОТО ---
 async def handle_new_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Автоматически сохраняет все новые фото, отправленные в группу"""
+    """Автоматически сохраняет все новые фото"""
     if update.effective_chat.type not in ["group", "supergroup"]:
         return
 
     chat_id = update.effective_chat.id
-
-    # Проверяем, есть ли фото в сообщении
+    
     if update.message and update.message.photo:
-        # Берем фото в максимальном качестве
         photo_file_id = update.message.photo[-1].file_id
-
-        # Создаем список для группы, если его нет
+        
         if chat_id not in group_photos:
             group_photos[chat_id] = []
-
-        # Добавляем фото в хранилище (избегаем дубликатов)
+        
         if photo_file_id not in group_photos[chat_id]:
             group_photos[chat_id].append(photo_file_id)
-            logging.info(f"Сохранено новое фото для группы {chat_id}, всего фото: {len(group_photos[chat_id])}")
+            logging.info(f"Сохранено фото для группы {chat_id}, всего: {len(group_photos[chat_id])}")
 
-
-# --- ОБРАБОТЧИК КОМАНДЫ /sex ---
 async def sex_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type not in ["group", "supergroup"]:
         await update.message.reply_text("❌ Эта команда работает только в группах!")
         return
 
     chat = update.effective_chat
-
-    # Пытаемся получить список участников через разных методов
     users = []
 
-    # Способ 1: Пробуем получить всех участников
     try:
-        async for member in chat.get_members():
-            if not member.user.is_bot:
-                users.append(member.user)
-                if len(users) >= 30:  # Ограничим для скорости
-                    break
-        logging.info(f"Найдено участников-людей: {len(users)}")
+        admins = await chat.get_administrators()
+        for admin in admins:
+            if not admin.user.is_bot:
+                users.append(admin.user)
+        
+        if len(users) < 2:
+            async for member in chat.get_members():
+                if not member.user.is_bot:
+                    users.append(member.user)
+                    if len(users) >= 20:
+                        break
     except Exception as e:
-        logging.error(f"Ошибка получения участников через get_members: {e}")
-
-        # Способ 2: Получаем только администраторов
-        try:
-            admins = await chat.get_administrators()
-            for admin in admins:
-                if not admin.user.is_bot:
-                    users.append(admin.user)
-            logging.info(f"Найдено администраторов: {len(users)}")
-        except Exception as e2:
-            logging.error(f"Ошибка получения администраторов: {e2}")
-
-    # Если всё равно никого не нашли
-    if len(users) < 2:
+        logging.error(f"Ошибка получения участников: {e}")
         await update.message.reply_text(
-            "❌ Не удалось найти достаточно участников.\n\n"
-            "Убедитесь, что бот является администратором группы!\n"
-            "Для команды /sex нужны права: 'Получение информации об участниках'"
+            "❌ Ошибка: бот не может получить список участников.\n"
+            "Убедитесь, что бот является администратором группы!"
         )
         return
 
-    # Выбираем двух разных людей
-    user1, user2 = random.sample(users, 2)
+    if len(users) < 2:
+        await update.message.reply_text(
+            "❌ Не найдено достаточно участников (нужно минимум 2 человека).\n"
+            "Убедитесь, что бот имеет права администратора."
+        )
+        return
 
-    # Формируем текст с упоминаниями
+    user1, user2 = random.sample(users, 2)
+    
     def get_user_mention(user):
         if user.username:
             return f"@{user.username}"
-        elif user.full_name:
-            return user.full_name
-        else:
-            return str(user.id)
+        return user.full_name or str(user.id)
 
     name1 = get_user_mention(user1)
     name2 = get_user_mention(user2)
-
     emojis = ["🍆💦", "🔥", "😈", "🥵", "🍑", "💀", "🤯", "💢"]
-    result_text = f"{name1} выебал {name2} {random.choice(emojis)}"
-    await update.message.reply_text(result_text)
+    
+    await update.message.reply_text(f"{name1} выебал {name2} {random.choice(emojis)}")
 
-
-# --- ОБРАБОТЧИК КОМАНДЫ /video ---
 async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type not in ["group", "supergroup"]:
         await update.message.reply_text("❌ Эта команда работает только в группах!")
@@ -109,72 +90,21 @@ async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     status_msg = await update.message.reply_text("🔍 Ищу случайное фото...")
 
-    # СПОСОБ 1: Проверяем сохраненные фото из хранилища
     if chat_id in group_photos and group_photos[chat_id]:
         random_photo_id = random.choice(group_photos[chat_id])
         await status_msg.delete()
         await update.message.reply_photo(
             photo=random_photo_id,
-            caption=f"🎲 Случайное фото из сохраненных (всего: {len(group_photos[chat_id])})"
+            caption=f"🎲 Случайное фото (всего: {len(group_photos[chat_id])})"
         )
         return
 
-    # СПОСОБ 2: Пытаемся получить фото из истории сообщений
-    try:
-        chat = update.effective_chat
-
-        # Пробуем разные методы получения истории
-        messages = []
-
-        # Метод 1: get_history (может не работать в некоторых группах)
-        try:
-            async for message in chat.get_history(limit=100):
-                messages.append(message)
-            logging.info(f"Получено {len(messages)} сообщений через get_history")
-        except Exception as e:
-            logging.warning(f"get_history не работает: {e}")
-
-            # Метод 2: Пытаемся получить через chat.join и другие методы
-            try:
-                # Некоторые группы требуют явного присоединения
-                await chat.join()
-                async for message in chat.get_history(limit=100):
-                    messages.append(message)
-            except:
-                pass
-
-        # Собираем все фото
-        all_photos = []
-        for msg in messages:
-            if msg.photo:
-                all_photos.append(msg.photo[-1].file_id)
-
-        if all_photos:
-            # Сохраняем найденные фото в хранилище
-            group_photos[chat_id] = all_photos
-            random_photo_id = random.choice(all_photos)
-            await status_msg.delete()
-            await update.message.reply_photo(
-                photo=random_photo_id,
-                caption=f"🎲 Случайное фото из истории (найдено: {len(all_photos)} фото)"
-            )
-            return
-
-    except Exception as e:
-        logging.error(f"Ошибка при поиске в истории: {e}")
-
-    # СПОСОБ 3: Если ничего не нашли, просим пользователей отправить фото
     await status_msg.edit_text(
         "📭 Нет сохраненных фото!\n\n"
-        "Чтобы бот мог показывать случайные фото:\n"
-        "1. Отправьте несколько фото в этот чат\n"
-        "2. Бот автоматически их запомнит\n"
-        "3. Затем снова используйте /video\n\n"
-        "💡 Совет: отправьте 5-10 фото для разнообразия"
+        "Отправьте несколько фото в этот чат, и бот автоматически их запомнит.\n"
+        "Затем снова используйте /video"
     )
 
-
-# --- КОМАНДА ДЛЯ ПРОВЕРКИ СТАТИСТИКИ ---
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type not in ["group", "supergroup"]:
         await update.message.reply_text("❌ Эта команда работает только в группах!")
@@ -186,56 +116,43 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📊 Статистика группы:\n"
         f"• Сохранено фото: {photos_count}\n\n"
-        f"Команды:\n"
-        f"/sex - случайная пара\n"
-        f"/video - случайное фото\n"
-        f"/stats - эта статистика"
+        f"Команды: /sex | /video | /stats | /help"
     )
 
-
-# --- КОМАНДА /help ---
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Доступные команды:\n\n"
-        "/sex - случайный 'выебал' между участниками\n"
+        "/sex - случайная пара 'выебал'\n"
         "/video - случайное фото из сохраненных\n"
         "/stats - статистика группы\n"
         "/help - это сообщение\n\n"
         "📸 Как работают фото:\n"
         "1. Бот автоматически запоминает ВСЕ новые фото в группе\n"
-        "2. По команде /video показывает случайное из сохраненных\n"
-        "3. Чем больше фото отправите, тем разнообразнее выбор\n\n"
+        "2. По команде /video показывает случайное из сохраненных\n\n"
         "⚠️ Важно: бот должен быть администратором группы!"
     )
 
-
-# --- ГЛАВНАЯ ФУНКЦИЯ ЗАПУСКА ---
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Добавляем обработчики команд
     app.add_handler(CommandHandler("sex", sex_command))
     app.add_handler(CommandHandler("video", video_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("help", help_command))
-
-    # Добавляем обработчик для автоматического сохранения новых фото
-    app.add_handler(CommandHandler("start", help_command))  # /start тоже показывает помощь
-    # Этот обработчик будет ловить все сообщения с фото
-    # ВАЖНО: Он должен быть последним, чтобы не конфликтовать с командами
-    from telegram.ext import MessageHandler, filters
+    app.add_handler(CommandHandler("start", help_command))
     app.add_handler(MessageHandler(filters.PHOTO, handle_new_photo))
 
-    print("🤖 Бот запущен...")
+    port = int(os.environ.get("PORT", 8080))
+    
+    print("🤖 Бот запущен на Render...")
     print("Доступные команды: /sex, /video, /stats, /help")
-    print("\n📸 Как это работает:")
-    print("1. Бот автоматически запоминает ВСЕ фото в группе")
-    print("2. По команде /video показывает случайное сохраненное фото")
-    print("3. Для /sex бот должен быть администратором")
-    print("\n⚠️ Убедитесь, что бот является администратором группы!")
-
-    app.run_polling()
-
+    
+    # Для Render нужно использовать webhook или polling с портом
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost')}/webhook"
+    )
 
 if __name__ == "__main__":
     main()
