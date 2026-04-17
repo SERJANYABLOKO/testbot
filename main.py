@@ -1,7 +1,6 @@
 import os
 import random
 import logging
-import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -23,7 +22,6 @@ async def handle_new_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             group_photos[chat_id] = []
         if photo_file_id not in group_photos[chat_id]:
             group_photos[chat_id].append(photo_file_id)
-            logging.info(f"Saved photo for {chat_id}")
 
 async def sex_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type not in ["group", "supergroup"]:
